@@ -80,44 +80,58 @@
 
     <script>
         const { createClient } = supabase;
-
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-        const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
-
-        const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+        const supabaseClient = createClient(
+            'https://itxpjkikqpquhcvevoti.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml0eHBqa2lrcXBxdWhjdmV2b3RpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDgzNjY1MDYsImV4cCI6MjA2Mzk0MjUwNn0.pGF6z6cJNq-Qb-jSORsdfxkQMZooF_DXOh5FsjW9Vxg'
+        );
 
         let userEmail = null;
 
         document.getElementById('loginForm').addEventListener('submit', async function (e) {
             e.preventDefault();
             const email = document.getElementById('loginEmail').value;
+            console.log('[Login Attempt]', email);
+
             const { error } = await supabaseClient.auth.signInWithOtp({ email });
             if (error) {
+                console.error('[Login Error]', error.message);
                 alert('Login error: ' + error.message);
             } else {
+                console.log('[Magic Link Sent]');
                 alert('Check your email for the magic link!');
             }
         });
 
         supabaseClient.auth.getSession().then(({ data: { session } }) => {
             if (session) {
-                userEmail = session.user.email;
+                const email = session.user.email;
+                userEmail = email;
+                console.log('[Session Restored]', email);
+
                 localStorage.setItem('ts_tok', btoa(session.access_token));
                 document.getElementById('loginForm').style.display = 'none';
                 document.getElementById('trendForm').style.display = 'block';
                 document.getElementById('logoutBtn').style.display = 'block';
+            } else {
+                console.warn('[No Session Found]');
             }
         });
 
+        //listen for auth code changes
         supabaseClient.auth.onAuthStateChange((event, session) => {
+            console.log('[Auth State Change]', event, session?.user?.email);
+
             if (event === 'SIGNED_IN' && session) {
-                userEmail = session.user.email;
+                const email = session.user.email;
+                userEmail = email;
+                console.log('[User Signed In]', email);
+
                 localStorage.setItem('ts_tok', btoa(session.access_token));
                 document.getElementById('loginForm').style.display = 'none';
                 document.getElementById('trendForm').style.display = 'block';
                 document.getElementById('logoutBtn').style.display = 'block';
             } else if (event === 'SIGNED_OUT') {
+                console.log('[User Signed Out]');
                 userEmail = null;
                 localStorage.removeItem('ts_tok');
                 document.getElementById('loginForm').style.display = 'block';
@@ -132,29 +146,40 @@
             const token = atob(localStorage.getItem('ts_tok') || '');
 
             if (!token || !userEmail) {
+                console.error('[Missing Session or Email]');
                 document.getElementById('errorMessage').textContent = 'Missing session or email. Please log in again.';
                 document.getElementById('errorMessage').style.display = 'block';
                 return;
             }
 
+            const payload = {
+                topic,
+                email: userEmail
+            };
+
+            console.log('[Submitting Topic]', payload);
+
             try {
-                const res = await fetch(webhookUrl, {
+                const res = await fetch('https://n8nflowmaster.app.n8n.cloud/webhook/generate', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
                     },
-                    body: JSON.stringify({ topic, email: userEmail })
+                    body: JSON.stringify(payload)
                 });
 
                 if (res.ok) {
+                    console.log('[Webhook Success]');
                     document.getElementById('successMessage').style.display = 'block';
                     document.getElementById('errorMessage').style.display = 'none';
                 } else {
+                    console.error('[Webhook Failed]', res.status, res.statusText);
                     document.getElementById('successMessage').style.display = 'none';
                     document.getElementById('errorMessage').style.display = 'block';
                 }
             } catch (err) {
+                console.error('[Request Error]', err);
                 document.getElementById('successMessage').style.display = 'none';
                 document.getElementById('errorMessage').style.display = 'block';
             }
@@ -162,6 +187,7 @@
 
         document.getElementById('logoutBtn').addEventListener('click', async function () {
             await supabaseClient.auth.signOut();
+            console.log('[Logged Out]');
             localStorage.removeItem('ts_tok');
             location.reload();
         });
